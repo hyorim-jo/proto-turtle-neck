@@ -8,6 +8,8 @@ loadDotEnv(path.join(__dirname, ".env"));
 
 const PORT = Number(process.env.UT_PORT || 8787);
 const adminPath = path.join(__dirname, "admin.html");
+const eventLogDir = path.join(__dirname, "ut-logs");
+const eventLogPath = path.join(eventLogDir, "ut-events.jsonl");
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
 const REALTIME_VOICE = getRealtimeVoice();
 
@@ -55,12 +57,17 @@ wss.on("connection", (socket) => {
     const message = parseMessage(rawMessage);
     console.log("[UT server] received", message);
 
-    if (!message || !["set-score", "set-metrics"].includes(message.type)) {
+    if (!message || !["set-score", "set-metrics", "log-event"].includes(message.type)) {
       send(socket, {
         type: "error",
         message:
-          "Send { type: 'set-score', score: 0~100 } or { type: 'set-metrics', currentGoodPostureMinutes, averagePostureMinutes }"
+          "Send { type: 'set-score', score: 0~100 }, { type: 'set-metrics', currentGoodPostureMinutes, averagePostureMinutes }, or { type: 'log-event', event, payload }"
       });
+      return;
+    }
+
+    if (message.type === "log-event") {
+      writeUtEvent("app", message.event || "unknown", sanitizePayload(message.payload));
       return;
     }
 
@@ -81,6 +88,10 @@ wss.on("connection", (socket) => {
       console.log(
         `[UT server] broadcast metrics current=${currentGoodPostureMinutes} average=${averagePostureMinutes}`
       );
+      writeUtEvent("admin", "metrics_changed", {
+        currentGoodPostureMinutes,
+        averagePostureMinutes
+      });
       broadcastMetrics();
       return;
     }
@@ -93,6 +104,7 @@ wss.on("connection", (socket) => {
 
     currentScore = score;
     console.log(`[UT server] broadcast score=${currentScore}`);
+    writeUtEvent("admin", "score_changed", { score: currentScore });
     broadcast({ type: "score", score: currentScore });
   });
 
@@ -108,6 +120,7 @@ server.listen(PORT, "0.0.0.0", () => {
     console.log(`UT admin LAN: http://${address}:${PORT}`);
     console.log(`App WebSocket: ws://${address}:${PORT}`);
   });
+  console.log(`UT event log: ${eventLogPath}`);
 });
 
 function broadcast(payload) {
@@ -155,6 +168,30 @@ function readMinutes(value) {
   return minutes;
 }
 
+function writeUtEvent(source, event, payload = {}) {
+  const record = {
+    timestamp: new Date().toISOString(),
+    source,
+    event,
+    payload
+  };
+
+  try {
+    fs.mkdirSync(eventLogDir, { recursive: true });
+    fs.appendFileSync(eventLogPath, `${JSON.stringify(record)}\n`, "utf8");
+  } catch (error) {
+    console.error("[UT server] failed to write event log", error);
+  }
+}
+
+function sanitizePayload(payload) {
+  if (payload == null || typeof payload !== "object") {
+    return {};
+  }
+
+  return JSON.parse(JSON.stringify(payload));
+}
+
 function getRealtimeVoice() {
   const voices = new Set(["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"]);
   const configuredVoice = process.env.OPENAI_REALTIME_VOICE || "coral";
@@ -196,6 +233,7 @@ function createRealtimeSessionConfig() {
 
 async function handleRealtimeSession(req, res) {
   if (!process.env.OPENAI_API_KEY) {
+    writeUtEvent("server", "realtime_session_missing_api_key");
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: "OPENAI_API_KEY is required" }));
     return;
@@ -206,6 +244,10 @@ async function handleRealtimeSession(req, res) {
     const form = new FormData();
     form.set("sdp", sdp);
     form.set("session", JSON.stringify(createRealtimeSessionConfig()));
+    writeUtEvent("server", "realtime_session_requested", {
+      model: REALTIME_MODEL,
+      voice: REALTIME_VOICE
+    });
 
     const response = await fetch("https://api.openai.com/v1/realtime/calls", {
       method: "POST",
@@ -218,15 +260,24 @@ async function handleRealtimeSession(req, res) {
     const answerSdp = await response.text();
     if (!response.ok) {
       console.error("[Realtime] session failed", response.status, answerSdp);
+      writeUtEvent("server", "realtime_session_failed", {
+        status: response.status,
+        message: answerSdp.slice(0, 500)
+      });
       res.writeHead(response.status, { "Content-Type": "text/plain; charset=utf-8" });
       res.end(answerSdp);
       return;
     }
 
+    writeUtEvent("server", "realtime_session_created", {
+      model: REALTIME_MODEL,
+      voice: REALTIME_VOICE
+    });
     res.writeHead(200, { "Content-Type": "application/sdp; charset=utf-8" });
     res.end(answerSdp);
   } catch (error) {
     console.error("[Realtime] session error", error);
+    writeUtEvent("server", "realtime_session_error", { message: error.message });
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: "Failed to create realtime session" }));
   }

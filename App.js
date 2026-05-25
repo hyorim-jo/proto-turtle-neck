@@ -26,15 +26,19 @@ export default function App() {
   const [microphonePermissionStatus, setMicrophonePermissionStatus] = useState("checking");
   const [isMeasurementPaused, setIsMeasurementPaused] = useState(false);
   const [coachMode, setCoachMode] = useState("correction");
+  const status = scoreToStatusId(score);
+  const logEventRef = useRef(() => false);
   const badEntryTimestampsRef = useRef([]);
   const previousStatusRef = useRef(status);
   const lastStretchCoachAtRef = useRef(0);
 
-  const status = scoreToStatusId(score);
   const activeVariant = useMemo(
     () => measurementVariants.find((v) => v.id === status) ?? measurementVariants[0],
     [status]
   );
+  const logUtEvent = useCallback((eventName, payload) => {
+    logEventRef.current?.(eventName, payload);
+  }, []);
 
   useEffect(() => {
     if (currentScreen !== "measurement" || isMeasurementPaused || status !== "good") return undefined;
@@ -51,6 +55,14 @@ export default function App() {
     const previousStatus = previousStatusRef.current;
     previousStatusRef.current = status;
 
+    if (previousStatus !== status) {
+      logUtEvent("posture_status_changed", {
+        from: previousStatus,
+        to: status,
+        score
+      });
+    }
+
     if (status !== "bad" || previousStatus === "bad") {
       if (status !== "bad") setCoachMode("correction");
       return;
@@ -60,6 +72,11 @@ export default function App() {
     badEntryTimestampsRef.current = [...badEntryTimestampsRef.current, now].filter(
       (timestamp) => now - timestamp <= BAD_REPEAT_WINDOW_MS
     );
+    logUtEvent("bad_posture_entered", {
+      countInWindow: badEntryTimestampsRef.current.length,
+      windowMinutes: BAD_REPEAT_WINDOW_MS / 1000 / 60,
+      score
+    });
 
     const shouldSuggestStretch =
       badEntryTimestampsRef.current.length >= BAD_REPEAT_THRESHOLD &&
@@ -68,11 +85,15 @@ export default function App() {
     if (shouldSuggestStretch) {
       lastStretchCoachAtRef.current = now;
       setCoachMode("stretch");
+      logUtEvent("stretch_coach_triggered", {
+        countInWindow: badEntryTimestampsRef.current.length,
+        threshold: BAD_REPEAT_THRESHOLD
+      });
       return;
     }
 
     setCoachMode("correction");
-  }, [currentScreen, isMeasurementPaused, status]);
+  }, [currentScreen, isMeasurementPaused, logUtEvent, score, status]);
 
   const requestMicrophonePermission = useCallback(async () => {
     setMicrophonePermissionStatus("checking");
@@ -113,7 +134,11 @@ export default function App() {
   const handleUtScoreChange = useCallback((newScore) => {
     setScore(newScore);
     setIsSheetOpen(false);
-  }, []);
+    logUtEvent("score_applied", {
+      score: newScore,
+      status: scoreToStatusId(newScore)
+    });
+  }, [logUtEvent]);
 
   const handleCycleVariant = useCallback(() => {
     setScore((currentScore) => (currentScore > 80 ? 62 : currentScore > 50 ? 27 : 85));
@@ -121,12 +146,16 @@ export default function App() {
   }, []);
 
   const handleGoodPostureMinutesChange = useCallback((minutes) => {
-    setGoodPostureSeconds(clampMinutes(minutes) * 60);
-  }, []);
+    const nextMinutes = clampMinutes(minutes);
+    setGoodPostureSeconds(nextMinutes * 60);
+    logUtEvent("good_posture_minutes_applied", { minutes: nextMinutes });
+  }, [logUtEvent]);
 
   const handleAveragePostureMinutesChange = useCallback((minutes) => {
-    setAveragePostureMinutes(clampMinutes(minutes));
-  }, []);
+    const nextMinutes = clampMinutes(minutes);
+    setAveragePostureMinutes(nextMinutes);
+    logUtEvent("average_posture_minutes_applied", { minutes: nextMinutes });
+  }, [logUtEvent]);
 
   const handleMetricsChange = useCallback(
     ({ currentGoodPostureMinutes, averagePostureMinutes: nextAveragePostureMinutes }) => {
@@ -139,6 +168,12 @@ export default function App() {
     },
     [handleAveragePostureMinutesChange, handleGoodPostureMinutesChange]
   );
+
+  const { logEvent } = useUtControl(handleUtScoreChange, handleMetricsChange);
+
+  useEffect(() => {
+    logEventRef.current = logEvent;
+  }, [logEvent]);
 
   const handleStartMeasurement = useCallback(async () => {
     if (microphonePermissionStatus !== "granted") {
@@ -155,13 +190,16 @@ export default function App() {
     setIsMeasurementPaused(false);
     setIsSheetOpen(false);
     setCurrentScreen("measurement");
-  }, [microphonePermissionStatus, requestMicrophonePermission]);
+    logUtEvent("measurement_started", { status });
+  }, [logUtEvent, microphonePermissionStatus, requestMicrophonePermission, status]);
 
   const handleToggleMeasurementPause = useCallback(() => {
-    setIsMeasurementPaused((current) => !current);
-  }, []);
-
-  useUtControl(handleUtScoreChange, handleMetricsChange);
+    setIsMeasurementPaused((current) => {
+      const next = !current;
+      logUtEvent(next ? "measurement_paused" : "measurement_resumed");
+      return next;
+    });
+  }, [logUtEvent]);
 
   const goodPostureMinutes = Math.floor(goodPostureSeconds / 60);
 
@@ -191,10 +229,12 @@ export default function App() {
                   averagePostureMinutes={averagePostureMinutes}
                   coachMode={coachMode}
                   isPaused={isMeasurementPaused}
+                  onLogEvent={logUtEvent}
                   onTogglePause={handleToggleMeasurementPause}
                   onBack={() => {
                     setIsSheetOpen(false);
                     setIsMeasurementPaused(false);
+                    logUtEvent("measurement_ended", { reason: "back" });
                     setCurrentScreen("home");
                   }}
                 />

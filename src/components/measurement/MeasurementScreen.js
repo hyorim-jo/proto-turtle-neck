@@ -22,13 +22,14 @@ export function MeasurementScreen({
   averagePostureMinutes,
   coachMode,
   isPaused,
+  onLogEvent,
   onTogglePause,
   onBack
 }) {
   const { pages: promptPages, pageIndex: promptPageIndex, setPageIndex: setPromptPageIndex } =
     usePromptPages(variant.status);
   const { realtimeStatus, transcript, assistantText, startSession, stopSession } =
-    useRealtimePostureCoach(variant, isPaused, coachMode);
+    useRealtimePostureCoach(variant, isPaused, coachMode, onLogEvent);
 
   return (
     <View style={styles.screen}>

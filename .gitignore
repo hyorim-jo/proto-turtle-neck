@@ -10,6 +10,7 @@ dist-ios-check/
 dist-web-check/
 dist-android/
 dist-ios/
+ut-logs/
 npm-debug.*
 yarn-debug.*
 yarn-error.*

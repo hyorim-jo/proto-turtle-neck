@@ -115,7 +115,25 @@ export function useScoreSocket(onScoreMessage, onMetricsMessage) {
     return true;
   }, []);
 
-  return { status, sendScore, sendMetrics };
+  const logEvent = useCallback((eventName, payload = {}) => {
+    const socket = socketRef.current;
+    const openState = typeof WebSocket !== "undefined" ? WebSocket.OPEN : 1;
+
+    if (socket?.readyState !== openState || !eventName) {
+      return false;
+    }
+
+    socket.send(
+      JSON.stringify({
+        type: "log-event",
+        event: eventName,
+        payload
+      })
+    );
+    return true;
+  }, []);
+
+  return { status, sendScore, sendMetrics, logEvent };
 }
 
 function parseMessage(data) {

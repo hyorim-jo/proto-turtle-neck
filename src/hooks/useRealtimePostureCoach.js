@@ -13,7 +13,12 @@ const END_SESSION_TOKEN = "[[END_SESSION]]";
 const MAX_SESSION_MS = 60 * 1000;
 const USER_REPLY_IDLE_MS = 12 * 1000;
 
-export function useRealtimePostureCoach(variant, isPaused = false, coachMode = "correction") {
+export function useRealtimePostureCoach(
+  variant,
+  isPaused = false,
+  coachMode = "correction",
+  onLogEvent
+) {
   const connectionRef = useRef(null);
   const dataChannelRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -51,9 +56,13 @@ export function useRealtimePostureCoach(variant, isPaused = false, coachMode = "
 
     clearTimer(idleSessionTimerRef);
     idleSessionTimerRef.current = setTimeout(() => {
+      onLogEvent?.("realtime_coach_idle_timeout", {
+        postureStatus: variant.status,
+        coachMode
+      });
       stopSession();
     }, USER_REPLY_IDLE_MS);
-  }, [stopSession]);
+  }, [coachMode, onLogEvent, stopSession, variant.status]);
 
   const clearIdleTimeout = useCallback(() => {
     clearTimer(idleSessionTimerRef);
@@ -77,6 +86,10 @@ export function useRealtimePostureCoach(variant, isPaused = false, coachMode = "
     setStatus("connecting");
     setTranscript("");
     setAssistantText("");
+    onLogEvent?.("realtime_coach_starting", {
+      postureStatus: variant.status,
+      coachMode
+    });
 
     try {
       startSpeakerRoute();
@@ -94,7 +107,15 @@ export function useRealtimePostureCoach(variant, isPaused = false, coachMode = "
       dataChannelRef.current = dataChannel;
       dataChannel.onopen = () => {
         setStatus("connected");
+        onLogEvent?.("realtime_datachannel_opened", {
+          postureStatus: variant.status,
+          coachMode
+        });
         maxSessionTimerRef.current = setTimeout(() => {
+          onLogEvent?.("realtime_coach_max_duration_reached", {
+            postureStatus: variant.status,
+            coachMode
+          });
           stopSession();
         }, MAX_SESSION_MS);
         requestOpeningResponse(
@@ -102,7 +123,8 @@ export function useRealtimePostureCoach(variant, isPaused = false, coachMode = "
           variant,
           coachMode,
           responseInProgressRef,
-          openingRequestedRef
+          openingRequestedRef,
+          onLogEvent
         );
       };
       dataChannel.onmessage = (event) => {
@@ -112,13 +134,18 @@ export function useRealtimePostureCoach(variant, isPaused = false, coachMode = "
           setAssistantText,
           scheduleIdleTimeout,
           clearIdleTimeout,
-          responseInProgressRef
+          responseInProgressRef,
+          onLogEvent
         );
         if (shouldEndSession) {
           stopSession();
         }
       };
       dataChannel.onerror = () => {
+        onLogEvent?.("realtime_datachannel_error", {
+          postureStatus: variant.status,
+          coachMode
+        });
         setStatus("error");
       };
       dataChannel.onclose = () => {
@@ -144,19 +171,29 @@ export function useRealtimePostureCoach(variant, isPaused = false, coachMode = "
       await peerConnection.setRemoteDescription(
         new RTCSessionDescription({ type: "answer", sdp: answerSdp })
       );
+      onLogEvent?.("realtime_remote_description_set", {
+        postureStatus: variant.status,
+        coachMode
+      });
       requestOpeningResponse(
         sendEvent,
         variant,
         coachMode,
         responseInProgressRef,
-        openingRequestedRef
+        openingRequestedRef,
+        onLogEvent
       );
     } catch (error) {
       console.warn("Failed to start realtime posture coach", error);
+      onLogEvent?.("realtime_coach_error", {
+        postureStatus: variant.status,
+        coachMode,
+        message: error.message
+      });
       stopSession();
       setStatus("error");
     }
-  }, [clearIdleTimeout, coachMode, scheduleIdleTimeout, sendEvent, stopSession, variant]);
+  }, [clearIdleTimeout, coachMode, onLogEvent, scheduleIdleTimeout, sendEvent, stopSession, variant]);
 
   useEffect(() => {
     if (isPaused || !warningStatuses.has(variant.status)) {
@@ -217,7 +254,8 @@ function requestOpeningResponse(
   variant,
   coachMode,
   responseInProgressRef,
-  openingRequestedRef
+  openingRequestedRef,
+  onLogEvent
 ) {
   if (openingRequestedRef.current) return;
 
@@ -232,6 +270,10 @@ function requestOpeningResponse(
   if (didSend) {
     openingRequestedRef.current = true;
     responseInProgressRef.current = true;
+    onLogEvent?.("realtime_opening_requested", {
+      postureStatus: variant.status,
+      coachMode
+    });
   }
 }
 
@@ -272,7 +314,8 @@ function handleRealtimeEvent(
   setAssistantText,
   scheduleIdleTimeout,
   clearIdleTimeout,
-  responseInProgressRef
+  responseInProgressRef,
+  onLogEvent
 ) {
   let event;
   try {
@@ -298,6 +341,9 @@ function handleRealtimeEvent(
     typeof event.transcript === "string"
   ) {
     setTranscript(event.transcript);
+    onLogEvent?.("realtime_user_transcript", {
+      transcript: event.transcript
+    });
   }
 
   if (isResponseDeltaEvent(event.type)) {
@@ -315,12 +361,18 @@ function handleRealtimeEvent(
   if (event.type === "response.output_text.done" || event.type === "response.text.done") {
     if (typeof event.text === "string") {
       shouldEndSession = event.text.includes(END_SESSION_TOKEN);
-      setAssistantText(stripEndSessionToken(event.text));
+      const cleanText = stripEndSessionToken(event.text);
+      setAssistantText(cleanText);
+      onLogEvent?.("realtime_assistant_text_done", {
+        text: cleanText,
+        shouldEndSession
+      });
     }
   }
 
   if (isResponseDoneEvent(event.type)) {
     responseInProgressRef.current = false;
+    onLogEvent?.("realtime_response_done", { eventType: event.type });
     scheduleIdleTimeout();
   }
 
