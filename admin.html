@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Necklife UT Admin</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --green: #2ea965;
+        --orange: #f2a867;
+        --red: #e9614f;
+        --ink: #111111;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --panel: #ffffff;
+        --bg: #f5f6f5;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      main {
+        width: min(520px, 100%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 24px;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: 22px;
+        line-height: 1.2;
+      }
+
+      .meta {
+        margin: 0 0 16px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .ws-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #bbbbbb;
+      }
+
+      .dot.connected { background: var(--green); }
+      .dot.disconnected { background: var(--red); }
+
+      .buttons {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+
+      button {
+        width: 100%;
+        border: 0;
+        border-radius: 14px;
+        color: white;
+        font-size: 18px;
+        font-weight: 700;
+        padding: 16px 20px;
+        cursor: pointer;
+        transition: transform 120ms ease, opacity 120ms ease;
+      }
+
+      button:active {
+        transform: scale(0.985);
+        opacity: 0.82;
+      }
+
+      button.selected {
+        box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.1);
+      }
+
+      [data-state="good"] { background: var(--green); }
+      [data-state="soso"] { background: var(--orange); }
+      [data-state="bad"] { background: var(--red); }
+
+      hr {
+        border: none;
+        border-top: 1px solid var(--line);
+        margin: 0 0 20px;
+      }
+
+      .score-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+
+      .score-caption {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 2px;
+      }
+
+      .score-value {
+        font-size: 48px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: -2px;
+        transition: color 200ms;
+      }
+
+      .status-badge {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 20px;
+        border: 1.5px solid currentColor;
+        font-size: 13px;
+        font-weight: 600;
+        transition: color 200ms, border-color 200ms;
+      }
+
+      .badge-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        outline: none;
+        background: linear-gradient(
+          to right,
+          #f9c7c0 0%,
+          #f9c7c0 50%,
+          #fde3be 50%,
+          #fde3be 80%,
+          #c4edd9 80%,
+          #c4edd9 100%
+        );
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: white;
+        border: 2.5px solid currentColor;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+        cursor: pointer;
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: white;
+        border: 2.5px solid currentColor;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+        cursor: pointer;
+      }
+
+      .scale-labels {
+        position: relative;
+        height: 18px;
+        margin-top: 4px;
+        font-size: 11px;
+        color: #999999;
+      }
+
+      .scale-labels span {
+        position: absolute;
+        transform: translateX(-50%);
+      }
+
+      .scale-labels span:first-child {
+        left: 0;
+        transform: none;
+      }
+
+      .scale-labels span:last-child {
+        right: 0;
+        transform: none;
+      }
+
+      .zone-labels {
+        display: flex;
+        font-size: 11px;
+        font-weight: 600;
+        margin-top: 2px;
+      }
+
+      .zone-labels span { text-align: center; }
+
+      .info-card {
+        background: #f7f8f4;
+        border-radius: 14px;
+        padding: 16px;
+        margin-top: 16px;
+      }
+
+      .metrics-card {
+        background: #f7f8f4;
+        border-radius: 14px;
+        padding: 16px;
+        margin-top: 16px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .camera-card {
+        background: #f7f8f4;
+        border-radius: 14px;
+        padding: 16px;
+        margin-top: 18px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .camera-head,
+      .camera-metrics,
+      .camera-toolbar,
+      .auto-row {
+        display: flex;
+        align-items: center;
+      }
+
+      .camera-head {
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .camera-head .info-title {
+        margin: 0;
+      }
+
+      .camera-status {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .camera-preview {
+        position: relative;
+        overflow: hidden;
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        border-radius: 12px;
+        background: #111827;
+      }
+
+      .camera-preview video,
+      .camera-preview canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .camera-preview video {
+        opacity: 0;
+      }
+
+      .camera-metrics {
+        justify-content: space-between;
+        gap: 10px;
+        color: #4b5563;
+        font-size: 13px;
+      }
+
+      .camera-metrics strong {
+        color: var(--ink);
+        font-size: 18px;
+      }
+
+      .camera-toolbar {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      button.secondary-btn {
+        min-height: 42px;
+        padding: 10px 8px;
+        border: 1px solid #d9d9d9;
+        border-radius: 10px;
+        background: white;
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .auto-row {
+        grid-column: 1 / -1;
+        gap: 8px;
+        color: #4b5563;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .auto-row input {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--green);
+      }
+
+      .camera-help {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .metric-row {
+        display: grid;
+        grid-template-columns: 72px 1fr 24px;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .metric-row label {
+        font-size: 13px;
+        font-weight: 600;
+        color: #4b5563;
+      }
+
+      .metric-row input {
+        min-width: 0;
+        height: 40px;
+        border-radius: 10px;
+        border: 1px solid #d9d9d9;
+        background: white;
+        color: var(--ink);
+        font-size: 16px;
+        font-weight: 700;
+        padding: 0 12px;
+      }
+
+      .metric-row span {
+        font-size: 13px;
+        color: #4b5563;
+      }
+
+      .info-title {
+        font-size: 13px;
+        font-weight: 600;
+        margin: 0 0 10px;
+      }
+
+      .info-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 12px;
+        color: rgba(0, 0, 0, 0.65);
+      }
+
+      .info-row:last-child { margin-bottom: 0; }
+
+      .info-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+
+      code {
+        background: #f1f5f9;
+        border-radius: 6px;
+        padding: 2px 6px;
+        font-size: 12px;
+      }
+
+      .footer { margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Necklife UT Admin</h1>
+      <p class="meta">같은 Wi-Fi에 연결된 앱의 점수를 실시간으로 조작합니다.</p>
+
+      <div class="ws-row">
+        <span id="dot" class="dot"></span>
+        <span id="statusText">연결 중...</span>
+      </div>
+
+      <div class="buttons">
+        <button type="button" data-state="good">good</button>
+        <button type="button" data-state="soso">soso</button>
+        <button type="button" data-state="bad">bad</button>
+      </div>
+
+      <hr />
+
+      <div class="score-row">
+        <div>
+          <div class="score-caption">현재 점수</div>
+          <div class="score-value" id="scoreValue">85</div>
+        </div>
+        <div class="status-badge" id="statusBadge">
+          <span class="badge-dot"></span>
+          <span id="statusLabel">바른 자세 (good)</span>
+        </div>
+      </div>
+
+      <input type="range" id="scoreSlider" min="0" max="100" value="85" />
+      <div class="scale-labels">
+        <span>0</span>
+        <span style="left: 50%">50</span>
+        <span style="left: 80%">80</span>
+        <span>100</span>
+      </div>
+      <div class="zone-labels">
+        <span style="flex: 50; color: var(--red)">나쁨</span>
+        <span style="flex: 30; color: var(--orange)">보통</span>
+        <span style="flex: 20; color: var(--green)">좋음</span>
+      </div>
+
+      <div class="camera-card">
+        <div class="camera-head">
+          <p class="info-title">측면 카메라 분석</p>
+          <span class="camera-status" id="cameraStatus">대기 중</span>
+        </div>
+        <div class="camera-preview">
+          <video id="poseVideo" playsinline muted></video>
+          <canvas id="poseCanvas"></canvas>
+        </div>
+        <div class="camera-metrics">
+          <span>각도 <strong id="poseAngle">--°</strong></span>
+          <span>분석 점수 <strong id="poseScore">--</strong></span>
+        </div>
+        <div class="camera-toolbar">
+          <button type="button" class="secondary-btn" id="startCameraBtn">카메라 시작</button>
+          <button type="button" class="secondary-btn" id="calibratePoseBtn">기준 설정</button>
+          <button type="button" class="secondary-btn" id="applyPoseScoreBtn">점수 적용</button>
+          <label class="auto-row">
+            <input id="autoSendPoseScore" type="checkbox" />
+            분석 점수를 자동으로 앱에 전송
+          </label>
+        </div>
+        <p class="camera-help">
+          측면에서 귀와 어깨가 보이도록 촬영하세요. UT용 추정 점수이며 어깨를 기준점으로 계산합니다.
+        </p>
+      </div>
+
+      <div class="metrics-card">
+        <p class="info-title">바른 자세 유지 시간</p>
+        <div class="metric-row">
+          <label for="currentGoodPostureMinutes">현재</label>
+          <input id="currentGoodPostureMinutes" type="number" min="0" max="999" step="1" value="0" />
+          <span>분</span>
+        </div>
+        <div class="metric-row">
+          <label for="averagePostureMinutes">평균</label>
+          <input id="averagePostureMinutes" type="number" min="0" max="999" step="1" value="8" />
+          <span>분</span>
+        </div>
+      </div>
+
+      <div class="info-card">
+        <p class="info-title">상태 기준</p>
+        <div class="info-row">
+          <span class="info-dot" style="background: var(--red)"></span>
+          0 ~ 50점: bad
+        </div>
+        <div class="info-row">
+          <span class="info-dot" style="background: var(--orange)"></span>
+          51 ~ 80점: soso
+        </div>
+        <div class="info-row">
+          <span class="info-dot" style="background: var(--green)"></span>
+          81 ~ 100점: good
+        </div>
+      </div>
+
+      <p class="meta footer">
+        앱 실행 환경변수: <code>EXPO_PUBLIC_UT_WS_URL=ws://PC_IP:8787</code>
+      </p>
+    </main>
+
+    <script>
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const scoreValue = document.getElementById("scoreValue");
+      const statusBadge = document.getElementById("statusBadge");
+      const statusLabel = document.getElementById("statusLabel");
+      const slider = document.getElementById("scoreSlider");
+      const currentGoodPostureInput = document.getElementById("currentGoodPostureMinutes");
+      const averagePostureInput = document.getElementById("averagePostureMinutes");
+      const buttons = Array.from(document.querySelectorAll("button[data-state]"));
+      const poseVideo = document.getElementById("poseVideo");
+      const poseCanvas = document.getElementById("poseCanvas");
+      const poseContext = poseCanvas.getContext("2d");
+      const cameraStatus = document.getElementById("cameraStatus");
+      const poseAngle = document.getElementById("poseAngle");
+      const poseScore = document.getElementById("poseScore");
+      const startCameraBtn = document.getElementById("startCameraBtn");
+      const calibratePoseBtn = document.getElementById("calibratePoseBtn");
+      const applyPoseScoreBtn = document.getElementById("applyPoseScoreBtn");
+      const autoSendPoseScore = document.getElementById("autoSendPoseScore");
+
+      const STATE_SCORE = { good: 85, soso: 62, bad: 27 };
+      const STATE_STYLE = {
+        good: { label: "바른 자세 (good)", color: "var(--green)" },
+        soso: { label: "보통 자세 (soso)", color: "var(--orange)" },
+        bad: { label: "위험 자세 (bad)", color: "var(--red)" }
+      };
+
+      let socket;
+      let currentGoodPostureMinutes = 0;
+      let averagePostureMinutes = 8;
+      let poseLandmarker;
+      let poseStream;
+      let isPoseLoopRunning = false;
+      let baselineAngle = null;
+      let lastPoseAngle = null;
+      let lastPoseScore = null;
+      let lastAutoSendAt = 0;
+
+      function getSocketUrl() {
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        return `${protocol}//${location.host}`;
+      }
+
+      function parseMessage(data) {
+        try {
+          return JSON.parse(data);
+        } catch {
+          return null;
+        }
+      }
+
+      function scoreToState(score) {
+        if (score <= 50) return "bad";
+        if (score <= 80) return "soso";
+        return "good";
+      }
+
+      function updateScoreUI(score) {
+        const state = scoreToState(score);
+        const style = STATE_STYLE[state];
+
+        scoreValue.textContent = score;
+        scoreValue.style.color = style.color;
+        statusLabel.textContent = style.label;
+        statusBadge.style.color = style.color;
+        slider.value = score;
+        slider.style.color = style.color;
+
+        buttons.forEach((button) => {
+          button.classList.toggle("selected", button.dataset.state === state);
+        });
+      }
+
+      function sendScore(score) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          console.log("[UT admin] send score", score);
+          socket.send(JSON.stringify({ type: "set-score", score }));
+        } else {
+          console.log("[UT admin] send skipped; socket not open", {
+            score,
+            readyState: socket ? socket.readyState : "missing"
+          });
+        }
+      }
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function landmarkConfidence(landmark) {
+        return landmark?.visibility ?? landmark?.presence ?? 0;
+      }
+
+      function pickVisibleSide(landmarks) {
+        const leftEar = landmarks[7];
+        const rightEar = landmarks[8];
+        const leftShoulder = landmarks[11];
+        const rightShoulder = landmarks[12];
+        const leftScore = landmarkConfidence(leftEar) + landmarkConfidence(leftShoulder);
+        const rightScore = landmarkConfidence(rightEar) + landmarkConfidence(rightShoulder);
+
+        if (leftScore >= rightScore) {
+          return { ear: leftEar, shoulder: leftShoulder, confidence: leftScore / 2 };
+        }
+        return { ear: rightEar, shoulder: rightShoulder, confidence: rightScore / 2 };
+      }
+
+      function getPostureAngle(ear, shoulder) {
+        const dx = Math.abs(ear.x - shoulder.x);
+        const dy = Math.abs(ear.y - shoulder.y);
+        return Math.atan2(dy, dx) * 180 / Math.PI;
+      }
+
+      function getPoseScore(angle) {
+        if (baselineAngle != null) {
+          return Math.round(clamp(100 - Math.max(0, baselineAngle - angle) * 6, 0, 100));
+        }
+        return Math.round(clamp((angle - 45) / 30, 0, 1) * 100);
+      }
+
+      function drawPosePoint(point, color) {
+        poseContext.beginPath();
+        poseContext.arc(point.x * poseCanvas.width, point.y * poseCanvas.height, 6, 0, Math.PI * 2);
+        poseContext.fillStyle = color;
+        poseContext.fill();
+      }
+
+      function drawPoseLine(start, end, color) {
+        poseContext.beginPath();
+        poseContext.moveTo(start.x * poseCanvas.width, start.y * poseCanvas.height);
+        poseContext.lineTo(end.x * poseCanvas.width, end.y * poseCanvas.height);
+        poseContext.lineWidth = 4;
+        poseContext.strokeStyle = color;
+        poseContext.stroke();
+      }
+
+      function paintPoseFrame(landmarks) {
+        poseContext.drawImage(poseVideo, 0, 0, poseCanvas.width, poseCanvas.height);
+        if (!landmarks) return;
+
+        const side = pickVisibleSide(landmarks);
+        if (!side.ear || !side.shoulder || side.confidence < 0.45) return;
+
+        const state = scoreToState(lastPoseScore ?? 0);
+        const color = state === "good" ? "#2ea965" : state === "soso" ? "#f2a867" : "#e9614f";
+        drawPoseLine(side.ear, side.shoulder, color);
+        drawPosePoint(side.ear, color);
+        drawPosePoint(side.shoulder, color);
+      }
+
+      function updatePoseAnalysis(angle) {
+        lastPoseAngle = angle;
+        lastPoseScore = getPoseScore(angle);
+        poseAngle.textContent = `${Math.round(angle)}°`;
+        poseScore.textContent = lastPoseScore;
+
+        if (!autoSendPoseScore.checked) return;
+
+        const now = Date.now();
+        if (now - lastAutoSendAt < 800) return;
+        lastAutoSendAt = now;
+        updateScoreUI(lastPoseScore);
+        sendScore(lastPoseScore);
+      }
+
+      async function loadPoseLandmarker() {
+        if (poseLandmarker) return poseLandmarker;
+
+        cameraStatus.textContent = "모델 로딩 중";
+        const vision = await import(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs"
+        );
+        const filesetResolver = await vision.FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
+        );
+        poseLandmarker = await vision.PoseLandmarker.createFromOptions(filesetResolver, {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numPoses: 1
+        });
+        return poseLandmarker;
+      }
+
+      async function startPoseCamera() {
+        try {
+          await loadPoseLandmarker();
+          cameraStatus.textContent = "카메라 요청 중";
+          poseStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              facingMode: "user"
+            },
+            audio: false
+          });
+          poseVideo.srcObject = poseStream;
+          await poseVideo.play();
+          startCameraBtn.textContent = "분석 중";
+          cameraStatus.textContent = "분석 중";
+
+          if (!isPoseLoopRunning) {
+            isPoseLoopRunning = true;
+            requestAnimationFrame(analyzePoseFrame);
+          }
+        } catch (error) {
+          console.error("[UT admin] pose camera error", error);
+          cameraStatus.textContent = "카메라/모델 오류";
+        }
+      }
+
+      function analyzePoseFrame() {
+        if (!isPoseLoopRunning) return;
+
+        if (poseVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          const width = poseVideo.videoWidth || 640;
+          const height = poseVideo.videoHeight || 480;
+          if (poseCanvas.width !== width || poseCanvas.height !== height) {
+            poseCanvas.width = width;
+            poseCanvas.height = height;
+          }
+
+          const result = poseLandmarker.detectForVideo(poseVideo, performance.now());
+          const landmarks = result.landmarks?.[0];
+          const side = landmarks ? pickVisibleSide(landmarks) : null;
+
+          if (side?.ear && side?.shoulder && side.confidence >= 0.45) {
+            updatePoseAnalysis(getPostureAngle(side.ear, side.shoulder));
+            cameraStatus.textContent = baselineAngle == null ? "분석 중" : "기준 적용 중";
+          } else {
+            cameraStatus.textContent = "측면 포즈 찾는 중";
+          }
+
+          paintPoseFrame(landmarks);
+        }
+
+        requestAnimationFrame(analyzePoseFrame);
+      }
+
+      function applyPoseScore() {
+        if (lastPoseScore == null) return;
+        updateScoreUI(lastPoseScore);
+        sendScore(lastPoseScore);
+      }
+
+      function updateMetricsUI(metrics) {
+        if (typeof metrics.currentGoodPostureMinutes === "number") {
+          currentGoodPostureMinutes = metrics.currentGoodPostureMinutes;
+          currentGoodPostureInput.value = currentGoodPostureMinutes;
+        }
+        if (typeof metrics.averagePostureMinutes === "number") {
+          averagePostureMinutes = metrics.averagePostureMinutes;
+          averagePostureInput.value = averagePostureMinutes;
+        }
+      }
+
+      function readMinuteInput(input, fallback) {
+        if (input.value === "") return null;
+        const value = Math.round(Number(input.value));
+        if (Number.isNaN(value)) return fallback;
+        return Math.max(0, Math.min(999, value));
+      }
+
+      function sendMetrics() {
+        currentGoodPostureMinutes = readMinuteInput(
+          currentGoodPostureInput,
+          currentGoodPostureMinutes
+        );
+        averagePostureMinutes = readMinuteInput(averagePostureInput, averagePostureMinutes);
+        if (currentGoodPostureMinutes == null || averagePostureMinutes == null) return;
+
+        updateMetricsUI({ currentGoodPostureMinutes, averagePostureMinutes });
+
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          console.log("[UT admin] send metrics", {
+            currentGoodPostureMinutes,
+            averagePostureMinutes
+          });
+          socket.send(
+            JSON.stringify({
+              type: "set-metrics",
+              currentGoodPostureMinutes,
+              averagePostureMinutes
+            })
+          );
+        }
+      }
+
+      function restoreMetricsInput(event) {
+        if (event.target.value !== "") return;
+        updateMetricsUI({ currentGoodPostureMinutes, averagePostureMinutes });
+      }
+
+      function connect() {
+        const socketUrl = getSocketUrl();
+        socket = new WebSocket(socketUrl);
+
+        socket.addEventListener("open", () => {
+          dot.classList.add("connected");
+          dot.classList.remove("disconnected");
+          statusText.textContent = "연결됨";
+          console.log("[UT admin] connected", socketUrl);
+        });
+
+        socket.addEventListener("close", () => {
+          dot.classList.remove("connected");
+          dot.classList.add("disconnected");
+          statusText.textContent = "연결 끊김";
+          console.log("[UT admin] disconnected; reconnecting");
+          setTimeout(connect, 1200);
+        });
+
+        socket.addEventListener("error", () => {
+          dot.classList.remove("connected");
+          dot.classList.add("disconnected");
+          statusText.textContent = "연결 오류";
+          console.log("[UT admin] socket error");
+        });
+
+        socket.addEventListener("message", (event) => {
+          console.log("[UT admin] raw message", event.data);
+          const message = parseMessage(event.data);
+          if (message?.type === "score" && typeof message.score === "number") {
+            console.log("[UT admin] received score", message.score);
+            updateScoreUI(message.score);
+          }
+          if (message?.type === "metrics") {
+            updateMetricsUI(message);
+          }
+        });
+      }
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const score = STATE_SCORE[button.dataset.state];
+          updateScoreUI(score);
+          sendScore(score);
+        });
+      });
+
+      slider.addEventListener("input", () => {
+        const score = Number(slider.value);
+        updateScoreUI(score);
+        sendScore(score);
+      });
+
+      currentGoodPostureInput.addEventListener("input", sendMetrics);
+      averagePostureInput.addEventListener("input", sendMetrics);
+      currentGoodPostureInput.addEventListener("blur", restoreMetricsInput);
+      averagePostureInput.addEventListener("blur", restoreMetricsInput);
+      startCameraBtn.addEventListener("click", startPoseCamera);
+      calibratePoseBtn.addEventListener("click", () => {
+        if (lastPoseAngle == null) return;
+        baselineAngle = lastPoseAngle;
+        cameraStatus.textContent = `기준 ${Math.round(baselineAngle)}°`;
+      });
+      applyPoseScoreBtn.addEventListener("click", applyPoseScore);
+
+      updateScoreUI(Number(slider.value));
+      updateMetricsUI({ currentGoodPostureMinutes, averagePostureMinutes });
+      connect();
+    </script>
+  </body>
+</html>

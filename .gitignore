@@ -1,0 +1,17 @@
+node_modules/
+.expo/
+.claude/
+.env
+dist/
+dist-*/
+dist-check/
+dist-android-check/
+dist-ios-check/
+dist-web-check/
+dist-android/
+dist-ios/
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.DS_Store
+turtle/turtle.obj
