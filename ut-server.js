@@ -16,6 +16,7 @@ const REALTIME_VOICE = getRealtimeVoice();
 let currentScore = 85;
 let currentGoodPostureMinutes = 0;
 let averagePostureMinutes = 8;
+let interventionMode = "voice";
 
 const server = http.createServer((req, res) => {
   if (req.method === "POST" && req.url === "/realtime/session") {
@@ -74,6 +75,7 @@ wss.on("connection", (socket) => {
     if (message.type === "set-metrics") {
       const nextCurrent = readMinutes(message.currentGoodPostureMinutes);
       const nextAverage = readMinutes(message.averagePostureMinutes);
+      const nextInterventionMode = readInterventionMode(message.interventionMode) || interventionMode;
 
       if (nextCurrent == null || nextAverage == null) {
         send(socket, {
@@ -85,12 +87,14 @@ wss.on("connection", (socket) => {
 
       currentGoodPostureMinutes = nextCurrent;
       averagePostureMinutes = nextAverage;
+      interventionMode = nextInterventionMode;
       console.log(
-        `[UT server] broadcast metrics current=${currentGoodPostureMinutes} average=${averagePostureMinutes}`
+        `[UT server] broadcast metrics current=${currentGoodPostureMinutes} average=${averagePostureMinutes} interventionMode=${interventionMode}`
       );
       writeUtEvent("admin", "metrics_changed", {
         currentGoodPostureMinutes,
-        averagePostureMinutes
+        averagePostureMinutes,
+        interventionMode
       });
       broadcastMetrics();
       return;
@@ -135,7 +139,8 @@ function broadcastMetrics() {
   broadcast({
     type: "metrics",
     currentGoodPostureMinutes,
-    averagePostureMinutes
+    averagePostureMinutes,
+    interventionMode
   });
 }
 
@@ -166,6 +171,10 @@ function readMinutes(value) {
     return null;
   }
   return minutes;
+}
+
+function readInterventionMode(value) {
+  return ["voice", "beep", "silent"].includes(value) ? value : null;
 }
 
 function writeUtEvent(source, event, payload = {}) {

@@ -54,7 +54,8 @@ export function useScoreSocket(onScoreMessage, onMetricsMessage) {
         if (message?.type === "metrics") {
           metricsCallbackRef.current?.({
             currentGoodPostureMinutes: readNumber(message.currentGoodPostureMinutes),
-            averagePostureMinutes: readNumber(message.averagePostureMinutes)
+            averagePostureMinutes: readNumber(message.averagePostureMinutes),
+            interventionMode: readInterventionMode(message.interventionMode)
           });
         }
       };
@@ -96,6 +97,7 @@ export function useScoreSocket(onScoreMessage, onMetricsMessage) {
     const openState = typeof WebSocket !== "undefined" ? WebSocket.OPEN : 1;
     const currentGoodPostureMinutes = readOutgoingNumber(metrics.currentGoodPostureMinutes);
     const averagePostureMinutes = readOutgoingNumber(metrics.averagePostureMinutes);
+    const interventionMode = readInterventionMode(metrics.interventionMode);
 
     if (currentGoodPostureMinutes == null || averagePostureMinutes == null) {
       return false;
@@ -109,7 +111,8 @@ export function useScoreSocket(onScoreMessage, onMetricsMessage) {
       JSON.stringify({
         type: "set-metrics",
         currentGoodPostureMinutes,
-        averagePostureMinutes
+        averagePostureMinutes,
+        interventionMode
       })
     );
     return true;
@@ -152,4 +155,8 @@ function readOutgoingNumber(value) {
   const number = Math.round(Number(value));
   if (Number.isNaN(number)) return null;
   return Math.max(0, Math.min(999, number));
+}
+
+function readInterventionMode(value) {
+  return ["voice", "beep", "silent"].includes(value) ? value : undefined;
 }

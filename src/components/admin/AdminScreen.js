@@ -3,6 +3,7 @@ import { ScrollView, View } from "react-native";
 
 import { AdminHeader } from "./AdminHeader";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { InterventionModeControl } from "./InterventionModeControl";
 import { PostureTimeInputs } from "./PostureTimeInputs";
 import { ScoreStateButtons } from "./ScoreStateButtons";
 import { ScoreStatusPanel } from "./ScoreStatusPanel";
@@ -15,9 +16,11 @@ export function AdminScreen({
   score,
   goodPostureMinutes,
   averagePostureMinutes,
+  interventionMode,
   onChangeScore,
   onChangeGoodPostureMinutes,
   onChangeAveragePostureMinutes,
+  onChangeInterventionMode,
   onChangeMetrics,
   onBack
 }) {
@@ -36,12 +39,21 @@ export function AdminScreen({
 
   const updateGoodPostureMinutes = (minutes) => {
     onChangeGoodPostureMinutes(minutes);
-    sendMetrics({ currentGoodPostureMinutes: minutes, averagePostureMinutes });
+    sendMetrics({ currentGoodPostureMinutes: minutes, averagePostureMinutes, interventionMode });
   };
 
   const updateAveragePostureMinutes = (minutes) => {
     onChangeAveragePostureMinutes(minutes);
-    sendMetrics({ currentGoodPostureMinutes: goodPostureMinutes, averagePostureMinutes: minutes });
+    sendMetrics({ currentGoodPostureMinutes: goodPostureMinutes, averagePostureMinutes: minutes, interventionMode });
+  };
+
+  const updateInterventionMode = (nextMode) => {
+    onChangeInterventionMode(nextMode);
+    sendMetrics({
+      currentGoodPostureMinutes: goodPostureMinutes,
+      averagePostureMinutes,
+      interventionMode: nextMode
+    });
   };
 
   return (
@@ -62,6 +74,10 @@ export function AdminScreen({
         averagePostureMinutes={averagePostureMinutes}
         onChangeGoodPostureMinutes={updateGoodPostureMinutes}
         onChangeAveragePostureMinutes={updateAveragePostureMinutes}
+      />
+      <InterventionModeControl
+        selectedMode={interventionMode}
+        onSelectMode={updateInterventionMode}
       />
       <StatusCriteriaCard />
     </ScrollView>

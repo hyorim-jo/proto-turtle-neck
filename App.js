@@ -26,6 +26,7 @@ export default function App() {
   const [microphonePermissionStatus, setMicrophonePermissionStatus] = useState("checking");
   const [isMeasurementPaused, setIsMeasurementPaused] = useState(false);
   const [coachMode, setCoachMode] = useState("correction");
+  const [interventionMode, setInterventionMode] = useState("voice");
   const status = scoreToStatusId(score);
   const logEventRef = useRef(() => false);
   const badEntryTimestampsRef = useRef([]);
@@ -157,16 +158,30 @@ export default function App() {
     logUtEvent("average_posture_minutes_applied", { minutes: nextMinutes });
   }, [logUtEvent]);
 
+  const handleInterventionModeChange = useCallback((nextMode) => {
+    if (!isInterventionMode(nextMode)) return;
+    setInterventionMode(nextMode);
+    logUtEvent("intervention_mode_changed", { interventionMode: nextMode });
+  }, [logUtEvent]);
+
   const handleMetricsChange = useCallback(
-    ({ currentGoodPostureMinutes, averagePostureMinutes: nextAveragePostureMinutes }) => {
+    ({
+      currentGoodPostureMinutes,
+      averagePostureMinutes: nextAveragePostureMinutes,
+      interventionMode: nextInterventionMode
+    }) => {
       if (typeof currentGoodPostureMinutes === "number") {
         handleGoodPostureMinutesChange(currentGoodPostureMinutes);
       }
       if (typeof nextAveragePostureMinutes === "number") {
         handleAveragePostureMinutesChange(nextAveragePostureMinutes);
       }
+      if (isInterventionMode(nextInterventionMode)) {
+        setInterventionMode(nextInterventionMode);
+        logUtEvent("intervention_mode_applied", { interventionMode: nextInterventionMode });
+      }
     },
-    [handleAveragePostureMinutesChange, handleGoodPostureMinutesChange]
+    [handleAveragePostureMinutesChange, handleGoodPostureMinutesChange, logUtEvent]
   );
 
   const { logEvent } = useUtControl(handleUtScoreChange, handleMetricsChange);
@@ -228,6 +243,7 @@ export default function App() {
                   warningPostureSeconds={warningPostureSeconds}
                   averagePostureMinutes={averagePostureMinutes}
                   coachMode={coachMode}
+                  interventionMode={interventionMode}
                   isPaused={isMeasurementPaused}
                   onLogEvent={logUtEvent}
                   onTogglePause={handleToggleMeasurementPause}
@@ -247,8 +263,10 @@ export default function App() {
                 onChangeScore={handleUtScoreChange}
                 goodPostureMinutes={goodPostureMinutes}
                 averagePostureMinutes={averagePostureMinutes}
+                interventionMode={interventionMode}
                 onChangeGoodPostureMinutes={handleGoodPostureMinutesChange}
                 onChangeAveragePostureMinutes={handleAveragePostureMinutesChange}
+                onChangeInterventionMode={handleInterventionModeChange}
                 onChangeMetrics={handleMetricsChange}
                 onBack={() => setCurrentScreen("home")}
               />
@@ -283,4 +301,8 @@ function clampMinutes(value) {
   const number = Math.round(Number(value));
   if (Number.isNaN(number)) return 0;
   return Math.max(0, Math.min(999, number));
+}
+
+function isInterventionMode(value) {
+  return ["voice", "beep", "silent"].includes(value);
 }

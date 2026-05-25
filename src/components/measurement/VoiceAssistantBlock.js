@@ -40,6 +40,8 @@ export function VoiceAssistantBlock({
 
 function getStatusText({ realtimeStatus, transcript, assistantText, isPaused }) {
   if (isPaused) return "자세 측정이 일시 정지 되었습니다.";
+  if (realtimeStatus === "beep") return "알림음으로 알려드렸어요";
+  if (realtimeStatus === "speaking") return assistantText || "자세 안내 중이에요";
   if (realtimeStatus === "connecting") return "실시간 코치 연결 중이에요";
   if (assistantText) return assistantText;
   if (transcript) return transcript;
