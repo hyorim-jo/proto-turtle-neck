@@ -14,6 +14,7 @@ const warningStatuses = new Set(["soso", "bad"]);
 const END_SESSION_TOKEN = "[[END_SESSION]]";
 const MAX_SESSION_MS = 60 * 1000;
 const USER_REPLY_IDLE_MS = 12 * 1000;
+const RESPONSE_DRAIN_BEFORE_STOP_MS = 1800;
 const BEEP_SOUND_URI =
   "data:audio/wav;base64,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";
 
@@ -30,12 +31,14 @@ export function useRealtimePostureCoach(
   const hasStartedForStatusRef = useRef(null);
   const maxSessionTimerRef = useRef(null);
   const idleSessionTimerRef = useRef(null);
+  const deferredStopTimerRef = useRef(null);
   const openingSpeechTimerRef = useRef(null);
   const openingSpeechPollStartTimerRef = useRef(null);
   const openingSpeechPollIntervalRef = useRef(null);
   const openingSpeechCompletedRef = useRef(false);
   const openingSpeechCancelledRef = useRef(false);
   const openingSpeechTokenRef = useRef(null);
+  const pendingStopAfterResponseRef = useRef(false);
   const responseInProgressRef = useRef(false);
   const [status, setStatus] = useState("idle");
   const [transcript, setTranscript] = useState("");
@@ -44,6 +47,7 @@ export function useRealtimePostureCoach(
   const stopSession = useCallback(() => {
     clearTimer(maxSessionTimerRef);
     clearTimer(idleSessionTimerRef);
+    clearTimer(deferredStopTimerRef);
     clearTimer(openingSpeechTimerRef);
     clearTimer(openingSpeechPollStartTimerRef);
     clearIntervalRef(openingSpeechPollIntervalRef);
@@ -60,12 +64,38 @@ export function useRealtimePostureCoach(
 
     connectionRef.current?.close();
     connectionRef.current = null;
+    pendingStopAfterResponseRef.current = false;
     responseInProgressRef.current = false;
 
     stopSpeakerRoute();
 
     setStatus("idle");
   }, []);
+
+  const scheduleDeferredSessionStop = useCallback(() => {
+    clearTimer(deferredStopTimerRef);
+    deferredStopTimerRef.current = setTimeout(() => {
+      onLogEvent?.("realtime_coach_deferred_stop_after_response", {
+        postureStatus: variant.status,
+        coachMode
+      });
+      stopSession();
+    }, RESPONSE_DRAIN_BEFORE_STOP_MS);
+  }, [coachMode, onLogEvent, stopSession, variant.status]);
+
+  const stopSessionWhenSafe = useCallback(() => {
+    if (responseInProgressRef.current) {
+      pendingStopAfterResponseRef.current = true;
+      clearTimer(idleSessionTimerRef);
+      onLogEvent?.("realtime_coach_stop_deferred_until_response_done", {
+        postureStatus: variant.status,
+        coachMode
+      });
+      return;
+    }
+
+    stopSession();
+  }, [coachMode, onLogEvent, stopSession, variant.status]);
 
   const scheduleIdleTimeout = useCallback(() => {
     if (responseInProgressRef.current) return;
@@ -100,12 +130,14 @@ export function useRealtimePostureCoach(
 
     clearTimer(maxSessionTimerRef);
     clearTimer(idleSessionTimerRef);
+    clearTimer(deferredStopTimerRef);
     dataChannelRef.current?.close();
     dataChannelRef.current = null;
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
     connectionRef.current?.close();
     connectionRef.current = null;
+    pendingStopAfterResponseRef.current = false;
     responseInProgressRef.current = false;
 
     setStatus("connecting");
@@ -160,6 +192,8 @@ export function useRealtimePostureCoach(
           scheduleIdleTimeout,
           clearIdleTimeout,
           responseInProgressRef,
+          pendingStopAfterResponseRef,
+          scheduleDeferredSessionStop,
           onLogEvent
         );
         if (shouldEndSession) {
@@ -211,7 +245,16 @@ export function useRealtimePostureCoach(
       stopSession();
       setStatus("error");
     }
-  }, [clearIdleTimeout, coachMode, onLogEvent, scheduleIdleTimeout, sendEvent, stopSession, variant]);
+  }, [
+    clearIdleTimeout,
+    coachMode,
+    onLogEvent,
+    scheduleDeferredSessionStop,
+    scheduleIdleTimeout,
+    sendEvent,
+    stopSession,
+    variant
+  ]);
 
   const runIntervention = useCallback(() => {
     if (interventionMode === "silent") {
@@ -358,7 +401,7 @@ export function useRealtimePostureCoach(
   useEffect(() => {
     if (isPaused || !warningStatuses.has(variant.status)) {
       hasStartedForStatusRef.current = null;
-      stopSession();
+      stopSessionWhenSafe();
       return undefined;
     }
 
@@ -371,7 +414,14 @@ export function useRealtimePostureCoach(
     runIntervention();
 
     return undefined;
-  }, [coachMode, interventionMode, isPaused, runIntervention, stopSession, variant.status]);
+  }, [
+    coachMode,
+    interventionMode,
+    isPaused,
+    runIntervention,
+    stopSessionWhenSafe,
+    variant.status
+  ]);
 
   useEffect(() => stopSession, [stopSession]);
 
@@ -497,6 +547,8 @@ function handleRealtimeEvent(
   scheduleIdleTimeout,
   clearIdleTimeout,
   responseInProgressRef,
+  pendingStopAfterResponseRef,
+  scheduleDeferredSessionStop,
   onLogEvent
 ) {
   let event;
@@ -566,6 +618,12 @@ function handleRealtimeEvent(
   if (isResponseDoneEvent(event.type)) {
     responseInProgressRef.current = false;
     onLogEvent?.("realtime_response_done", { eventType: event.type });
+    if (pendingStopAfterResponseRef.current) {
+      pendingStopAfterResponseRef.current = false;
+      clearIdleTimeout();
+      scheduleDeferredSessionStop();
+      return shouldEndSession;
+    }
     scheduleIdleTimeout();
   }
 
