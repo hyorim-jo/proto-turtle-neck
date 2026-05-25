@@ -98,6 +98,13 @@ export function useRealtimePostureCoach(
 
       const peerConnection = new RTCPeerConnection();
       connectionRef.current = peerConnection;
+      peerConnection.ontrack = () => {
+        startSpeakerRoute();
+        onLogEvent?.("realtime_remote_audio_track_received", {
+          postureStatus: variant.status,
+          coachMode
+        });
+      };
 
       stream.getTracks().forEach((track) => {
         peerConnection.addTrack(track, stream);
@@ -260,14 +267,32 @@ function requestOpeningResponse(
   if (openingRequestedRef.current) return;
 
   const didSend = sendEvent({
+    type: "conversation.item.create",
+    item: {
+      type: "message",
+      role: "user",
+      content: [
+        {
+          type: "input_text",
+          text: buildOpeningTriggerText(variant, coachMode)
+        }
+      ]
+    }
+  });
+
+  if (!didSend) return;
+
+  const didRequestResponse = sendEvent({
     type: "response.create",
     response: {
-      instructions: buildOpeningPrompt(variant, coachMode),
+      instructions: `${buildOpeningPrompt(variant, coachMode)}
+
+지금 즉시 음성으로 사용자에게 먼저 말을 걸어라. 사용자의 추가 발화를 기다리지 말고 첫 문장을 말한다.`,
       modalities: ["audio", "text"]
     }
   });
 
-  if (didSend) {
+  if (didRequestResponse) {
     openingRequestedRef.current = true;
     responseInProgressRef.current = true;
     onLogEvent?.("realtime_opening_requested", {
@@ -275,6 +300,14 @@ function requestOpeningResponse(
       coachMode
     });
   }
+}
+
+function buildOpeningTriggerText(variant, coachMode) {
+  const statusText = variant.status === "bad" ? "bad" : "soso";
+  if (coachMode === "stretch") {
+    return `앱이 최근 10분 안에 bad 자세가 3번 이상 반복된 것을 감지했습니다. 현재 상태는 ${statusText}입니다. 사용자에게 먼저 스트레칭을 제안하세요.`;
+  }
+  return `앱이 사용자의 자세 점수가 낮아진 것을 감지했습니다. 현재 상태는 ${statusText}입니다. 사용자에게 먼저 자세 교정과 스트레칭을 제안하세요.`;
 }
 
 function buildOpeningPrompt(variant, coachMode = "correction") {
@@ -351,17 +384,28 @@ function handleRealtimeEvent(
   }
 
   if (
-    (event.type === "response.output_text.delta" || event.type === "response.text.delta") &&
+    (
+      event.type === "response.output_text.delta" ||
+      event.type === "response.text.delta" ||
+      event.type === "response.audio_transcript.delta" ||
+      event.type === "response.output_audio_transcript.delta"
+    ) &&
     typeof event.delta === "string"
   ) {
     shouldEndSession = event.delta.includes(END_SESSION_TOKEN);
     setAssistantText((current) => stripEndSessionToken(current + event.delta));
   }
 
-  if (event.type === "response.output_text.done" || event.type === "response.text.done") {
-    if (typeof event.text === "string") {
-      shouldEndSession = event.text.includes(END_SESSION_TOKEN);
-      const cleanText = stripEndSessionToken(event.text);
+  if (
+    event.type === "response.output_text.done" ||
+    event.type === "response.text.done" ||
+    event.type === "response.audio_transcript.done" ||
+    event.type === "response.output_audio_transcript.done"
+  ) {
+    const doneText = event.text || event.transcript;
+    if (typeof doneText === "string") {
+      shouldEndSession = doneText.includes(END_SESSION_TOKEN);
+      const cleanText = stripEndSessionToken(doneText);
       setAssistantText(cleanText);
       onLogEvent?.("realtime_assistant_text_done", {
         text: cleanText,
@@ -384,7 +428,9 @@ function isResponseDeltaEvent(type) {
     type === "response.audio.delta" ||
     type === "response.output_audio.delta" ||
     type === "response.output_text.delta" ||
-    type === "response.text.delta"
+    type === "response.text.delta" ||
+    type === "response.audio_transcript.delta" ||
+    type === "response.output_audio_transcript.delta"
   );
 }
 
