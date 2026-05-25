@@ -31,7 +31,11 @@ export function useRealtimePostureCoach(
   const maxSessionTimerRef = useRef(null);
   const idleSessionTimerRef = useRef(null);
   const openingSpeechTimerRef = useRef(null);
+  const openingSpeechPollStartTimerRef = useRef(null);
+  const openingSpeechPollIntervalRef = useRef(null);
   const openingSpeechCompletedRef = useRef(false);
+  const openingSpeechCancelledRef = useRef(false);
+  const openingSpeechTokenRef = useRef(null);
   const responseInProgressRef = useRef(false);
   const [status, setStatus] = useState("idle");
   const [transcript, setTranscript] = useState("");
@@ -41,6 +45,10 @@ export function useRealtimePostureCoach(
     clearTimer(maxSessionTimerRef);
     clearTimer(idleSessionTimerRef);
     clearTimer(openingSpeechTimerRef);
+    clearTimer(openingSpeechPollStartTimerRef);
+    clearIntervalRef(openingSpeechPollIntervalRef);
+    openingSpeechCancelledRef.current = true;
+    openingSpeechTokenRef.current = null;
     Speech.stop();
     openingSpeechCompletedRef.current = false;
 
@@ -244,7 +252,16 @@ export function useRealtimePostureCoach(
 
     const openingLine = buildOpeningLine(variant, coachMode);
     clearTimer(openingSpeechTimerRef);
+    clearTimer(openingSpeechPollStartTimerRef);
+    clearIntervalRef(openingSpeechPollIntervalRef);
+    openingSpeechCancelledRef.current = true;
+    openingSpeechTokenRef.current = null;
     Speech.stop();
+
+    const speechToken = Symbol("openingSpeech");
+    const speechState = { hasStarted: false };
+    openingSpeechTokenRef.current = speechToken;
+    openingSpeechCancelledRef.current = false;
     openingSpeechCompletedRef.current = false;
     setStatus("speaking");
     setAssistantText(openingLine);
@@ -254,30 +271,86 @@ export function useRealtimePostureCoach(
       text: openingLine
     });
 
-    const startAfterSpeech = () => {
-      if (openingSpeechCompletedRef.current) return;
+    const finishSpeech = (reason) => {
+      if (
+        openingSpeechCompletedRef.current ||
+        openingSpeechCancelledRef.current ||
+        openingSpeechTokenRef.current !== speechToken
+      ) {
+        return;
+      }
+
       openingSpeechCompletedRef.current = true;
       clearTimer(openingSpeechTimerRef);
+      clearTimer(openingSpeechPollStartTimerRef);
+      clearIntervalRef(openingSpeechPollIntervalRef);
       onLogEvent?.("tts_opening_finished", {
         postureStatus: variant.status,
-        coachMode
+        coachMode,
+        reason
       });
       startSession();
     };
 
-    openingSpeechTimerRef.current = setTimeout(startAfterSpeech, estimateSpeechDuration(openingLine));
+    const startPollingSpeechState = () => {
+      if (
+        openingSpeechCancelledRef.current ||
+        openingSpeechTokenRef.current !== speechToken ||
+        openingSpeechPollIntervalRef.current != null
+      ) {
+        return;
+      }
+
+      openingSpeechPollIntervalRef.current = setInterval(async () => {
+        if (
+          openingSpeechCancelledRef.current ||
+          openingSpeechTokenRef.current !== speechToken
+        ) {
+          clearIntervalRef(openingSpeechPollIntervalRef);
+          return;
+        }
+
+        try {
+          const isSpeaking = await Speech.isSpeakingAsync();
+          if (isSpeaking) {
+            speechState.hasStarted = true;
+            return;
+          }
+
+          if (speechState.hasStarted) {
+            finishSpeech("speech_state_idle");
+          }
+        } catch (error) {
+          console.warn("Failed to check TTS speaking state", error);
+        }
+      }, 250);
+    };
+
+    openingSpeechPollStartTimerRef.current = setTimeout(startPollingSpeechState, 700);
+    openingSpeechTimerRef.current = setTimeout(
+      () => finishSpeech("max_wait"),
+      estimateSpeechDuration(openingLine) + 5000
+    );
     Speech.speak(openingLine, {
       language: "ko-KR",
       pitch: 1,
       rate: 0.95,
-      onDone: startAfterSpeech,
-      onStopped: startAfterSpeech,
+      onStart: () => {
+        speechState.hasStarted = true;
+        startPollingSpeechState();
+      },
+      onDone: () => finishSpeech("done"),
+      onStopped: () => {
+        if (!openingSpeechCancelledRef.current) {
+          finishSpeech("stopped");
+        }
+      },
       onError: () => {
         onLogEvent?.("tts_opening_error", {
           postureStatus: variant.status,
           coachMode
         });
-        startAfterSpeech();
+        finishSpeech("error");
       }
     });
   }, [coachMode, interventionMode, onLogEvent, startSession, variant]);
@@ -334,6 +407,12 @@ function clearTimer(timerRef) {
   if (timerRef.current == null) return;
   clearTimeout(timerRef.current);
   timerRef.current = null;
+}
+
+function clearIntervalRef(intervalRef) {
+  if (intervalRef.current == null) return;
+  clearInterval(intervalRef.current);
+  intervalRef.current = null;
 }
 
 function sendOpeningContext(sendEvent, variant, coachMode, onLogEvent) {
