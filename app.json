@@ -26,6 +26,7 @@
         "android.permission.CAMERA",
         "android.permission.INTERNET",
         "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECORD_AUDIO",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WAKE_LOCK",
@@ -37,6 +38,7 @@
     "plugins": [
       "expo-asset",
       "expo-font",
+      "expo-notifications",
       "@config-plugins/react-native-webrtc"
     ],
     "extra": {
