@@ -18,7 +18,10 @@ export function VoiceAssistantBlock({
   isPaused,
   onToggleRecording
 }) {
-  const isRealtimeListening = realtimeStatus === "connected" || realtimeStatus === "connecting";
+  const isRealtimeListening =
+    realtimeStatus === "connected" ||
+    realtimeStatus === "connecting" ||
+    realtimeStatus === "responding";
 
   return (
     <View style={styles.voiceBlock}>
@@ -40,9 +43,12 @@ export function VoiceAssistantBlock({
 
 function getStatusText({ realtimeStatus, transcript, assistantText, isPaused }) {
   if (isPaused) return "자세 측정이 일시 정지 되었습니다.";
+  if (realtimeStatus === "warningPending") return "자세 상태를 확인하고 있어요";
   if (realtimeStatus === "beep") return "알림음으로 알려드렸어요";
   if (realtimeStatus === "speaking") return assistantText || "자세 안내 중이에요";
   if (realtimeStatus === "connecting") return "실시간 코치 연결 중이에요";
+  if (realtimeStatus === "responding") return assistantText || "실시간 코치가 답변 중이에요";
+  if (realtimeStatus === "ending") return "대화를 마무리하고 있어요";
   if (assistantText) return assistantText;
   if (transcript) return transcript;
   if (realtimeStatus === "connected") return "대답을 듣고 있어요";

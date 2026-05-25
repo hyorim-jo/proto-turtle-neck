@@ -15,10 +15,21 @@ const warningStatuses = new Set(["soso", "bad"]);
 const END_SESSION_TOKEN = "[[END_SESSION]]";
 const MAX_SESSION_MS = 60 * 1000;
 const USER_REPLY_IDLE_MS = 12 * 1000;
-const RESPONSE_DRAIN_BEFORE_STOP_MS = 1800;
 const VOICE_DURATION_BEFORE_INTERVENTION_MS = 15 * 1000;
 const BEEP_DURATION_BEFORE_INTERVENTION_MS = 3 * 1000;
 const POSTURE_ALERT_CHANNEL_ID = "default";
+const coachPhases = {
+  idle: "idle",
+  warningPending: "warningPending",
+  notifying: "beep",
+  openingTts: "speaking",
+  connecting: "connecting",
+  listening: "connected",
+  responding: "responding",
+  ending: "ending",
+  error: "error",
+  disabled: "disabled"
+};
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -42,7 +53,6 @@ export function useRealtimePostureCoach(
   const hasStartedForStatusRef = useRef(null);
   const maxSessionTimerRef = useRef(null);
   const idleSessionTimerRef = useRef(null);
-  const deferredStopTimerRef = useRef(null);
   const warningDurationTimerRef = useRef(null);
   const openingSpeechTimerRef = useRef(null);
   const openingSpeechPollStartTimerRef = useRef(null);
@@ -50,17 +60,21 @@ export function useRealtimePostureCoach(
   const openingSpeechCompletedRef = useRef(false);
   const openingSpeechCancelledRef = useRef(false);
   const openingSpeechTokenRef = useRef(null);
-  const pendingStopAfterResponseRef = useRef(false);
   const responseInProgressRef = useRef(false);
-  const [status, setStatus] = useState("idle");
+  const phaseRef = useRef(coachPhases.idle);
+  const [status, setStatus] = useState(coachPhases.idle);
   const [transcript, setTranscript] = useState("");
   const [assistantText, setAssistantText] = useState("");
   const [readySessionKey, setReadySessionKey] = useState(null);
 
+  const setPhase = useCallback((phase) => {
+    phaseRef.current = phase;
+    setStatus(phase);
+  }, []);
+
   const stopSession = useCallback(() => {
     clearTimer(maxSessionTimerRef);
     clearTimer(idleSessionTimerRef);
-    clearTimer(deferredStopTimerRef);
     clearTimer(warningDurationTimerRef);
     clearTimer(openingSpeechTimerRef);
     clearTimer(openingSpeechPollStartTimerRef);
@@ -78,38 +92,12 @@ export function useRealtimePostureCoach(
 
     connectionRef.current?.close();
     connectionRef.current = null;
-    pendingStopAfterResponseRef.current = false;
     responseInProgressRef.current = false;
 
     stopSpeakerRoute();
 
-    setStatus("idle");
-  }, []);
-
-  const scheduleDeferredSessionStop = useCallback(() => {
-    clearTimer(deferredStopTimerRef);
-    deferredStopTimerRef.current = setTimeout(() => {
-      onLogEvent?.("realtime_coach_deferred_stop_after_response", {
-        postureStatus: variant.status,
-        coachMode
-      });
-      stopSession();
-    }, RESPONSE_DRAIN_BEFORE_STOP_MS);
-  }, [coachMode, onLogEvent, stopSession, variant.status]);
-
-  const stopSessionWhenSafe = useCallback(() => {
-    if (responseInProgressRef.current) {
-      pendingStopAfterResponseRef.current = true;
-      clearTimer(idleSessionTimerRef);
-      onLogEvent?.("realtime_coach_stop_deferred_until_response_done", {
-        postureStatus: variant.status,
-        coachMode
-      });
-      return;
-    }
-
-    stopSession();
-  }, [coachMode, onLogEvent, stopSession, variant.status]);
+    setPhase(coachPhases.idle);
+  }, [setPhase]);
 
   const scheduleIdleTimeout = useCallback(() => {
     if (responseInProgressRef.current) return;
@@ -138,23 +126,21 @@ export function useRealtimePostureCoach(
   const startSession = useCallback(async () => {
     const sessionUrl = getRealtimeSessionUrl();
     if (!sessionUrl) {
-      setStatus("disabled");
+      setPhase(coachPhases.disabled);
       return;
     }
 
     clearTimer(maxSessionTimerRef);
     clearTimer(idleSessionTimerRef);
-    clearTimer(deferredStopTimerRef);
     dataChannelRef.current?.close();
     dataChannelRef.current = null;
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
     connectionRef.current?.close();
     connectionRef.current = null;
-    pendingStopAfterResponseRef.current = false;
     responseInProgressRef.current = false;
 
-    setStatus("connecting");
+    setPhase(coachPhases.connecting);
     setTranscript("");
     setAssistantText("");
     onLogEvent?.("realtime_coach_starting", {
@@ -184,7 +170,7 @@ export function useRealtimePostureCoach(
       const dataChannel = peerConnection.createDataChannel("oai-events");
       dataChannelRef.current = dataChannel;
       dataChannel.onopen = () => {
-        setStatus("connected");
+        setPhase(coachPhases.listening);
         onLogEvent?.("realtime_datachannel_opened", {
           postureStatus: variant.status,
           coachMode
@@ -197,6 +183,7 @@ export function useRealtimePostureCoach(
           stopSession();
         }, MAX_SESSION_MS);
         sendOpeningContext(sendEvent, variant, coachMode, onLogEvent);
+        scheduleIdleTimeout();
       };
       dataChannel.onmessage = (event) => {
         const shouldEndSession = handleRealtimeEvent(
@@ -206,8 +193,7 @@ export function useRealtimePostureCoach(
           scheduleIdleTimeout,
           clearIdleTimeout,
           responseInProgressRef,
-          pendingStopAfterResponseRef,
-          scheduleDeferredSessionStop,
+          setPhase,
           onLogEvent
         );
         if (shouldEndSession) {
@@ -219,10 +205,10 @@ export function useRealtimePostureCoach(
           postureStatus: variant.status,
           coachMode
         });
-        setStatus("error");
+        setPhase(coachPhases.error);
       };
       dataChannel.onclose = () => {
-        setStatus("idle");
+        setPhase(coachPhases.idle);
       };
 
       const offer = await peerConnection.createOffer();
@@ -248,7 +234,6 @@ export function useRealtimePostureCoach(
         postureStatus: variant.status,
         coachMode
       });
-      sendOpeningContext(sendEvent, variant, coachMode, onLogEvent);
     } catch (error) {
       console.warn("Failed to start realtime posture coach", error);
       onLogEvent?.("realtime_coach_error", {
@@ -257,22 +242,22 @@ export function useRealtimePostureCoach(
         message: error.message
       });
       stopSession();
-      setStatus("error");
+      setPhase(coachPhases.error);
     }
   }, [
     clearIdleTimeout,
     coachMode,
     onLogEvent,
-    scheduleDeferredSessionStop,
     scheduleIdleTimeout,
     sendEvent,
+    setPhase,
     stopSession,
     variant
   ]);
 
   const runIntervention = useCallback(() => {
     if (interventionMode === "silent") {
-      setStatus("idle");
+      setPhase(coachPhases.idle);
       setAssistantText("");
       onLogEvent?.("silent_intervention_triggered", {
         postureStatus: variant.status,
@@ -282,7 +267,7 @@ export function useRealtimePostureCoach(
     }
 
     if (interventionMode === "beep") {
-      setStatus("beep");
+      setPhase(coachPhases.notifying);
       setAssistantText("");
       onLogEvent?.("beep_intervention_started", {
         postureStatus: variant.status,
@@ -294,7 +279,7 @@ export function useRealtimePostureCoach(
             postureStatus: variant.status,
             coachMode
           });
-          setStatus("idle");
+          setPhase(coachPhases.idle);
         })
         .catch((error) => {
           onLogEvent?.("beep_intervention_error", {
@@ -302,7 +287,7 @@ export function useRealtimePostureCoach(
             coachMode,
             message: error.message
           });
-          setStatus("idle");
+          setPhase(coachPhases.idle);
         });
       return;
     }
@@ -320,7 +305,7 @@ export function useRealtimePostureCoach(
     openingSpeechTokenRef.current = speechToken;
     openingSpeechCancelledRef.current = false;
     openingSpeechCompletedRef.current = false;
-    setStatus("speaking");
+    setPhase(coachPhases.openingTts);
     setAssistantText(openingLine);
     onLogEvent?.("tts_opening_started", {
       postureStatus: variant.status,
@@ -410,7 +395,7 @@ export function useRealtimePostureCoach(
         finishSpeech("error");
       }
     });
-  }, [coachMode, interventionMode, onLogEvent, startSession, variant]);
+  }, [coachMode, interventionMode, onLogEvent, setPhase, startSession, variant]);
 
   useEffect(() => {
     const sessionKey = `${coachMode}:${interventionMode}`;
@@ -419,11 +404,25 @@ export function useRealtimePostureCoach(
         ? BEEP_DURATION_BEFORE_INTERVENTION_MS
         : VOICE_DURATION_BEFORE_INTERVENTION_MS;
 
-    if (isPaused || !warningStatuses.has(variant.status)) {
+    if (isPaused) {
       hasStartedForStatusRef.current = null;
       setReadySessionKey(null);
       clearTimer(warningDurationTimerRef);
-      stopSessionWhenSafe();
+      stopSession();
+      return undefined;
+    }
+
+    if (!warningStatuses.has(variant.status)) {
+      hasStartedForStatusRef.current = null;
+      setReadySessionKey(null);
+      clearTimer(warningDurationTimerRef);
+      if (phaseRef.current === coachPhases.warningPending) {
+        setPhase(coachPhases.idle);
+      }
+      return undefined;
+    }
+
+    if (!canScheduleWarningIntervention(phaseRef.current)) {
       return undefined;
     }
 
@@ -439,6 +438,7 @@ export function useRealtimePostureCoach(
           interventionMode,
           durationMs: warningDurationBeforeInterventionMs
         });
+        setPhase(coachPhases.warningPending);
         warningDurationTimerRef.current = setTimeout(() => {
           warningDurationTimerRef.current = null;
           setReadySessionKey(sessionKey);
@@ -460,7 +460,8 @@ export function useRealtimePostureCoach(
     onLogEvent,
     readySessionKey,
     runIntervention,
-    stopSessionWhenSafe,
+    setPhase,
+    stopSession,
     variant.status
   ]);
 
@@ -504,6 +505,10 @@ function clearIntervalRef(intervalRef) {
   if (intervalRef.current == null) return;
   clearInterval(intervalRef.current);
   intervalRef.current = null;
+}
+
+function canScheduleWarningIntervention(phase) {
+  return phase === coachPhases.idle || phase === coachPhases.warningPending;
 }
 
 function sendOpeningContext(sendEvent, variant, coachMode, onLogEvent) {
@@ -596,8 +601,7 @@ function handleRealtimeEvent(
   scheduleIdleTimeout,
   clearIdleTimeout,
   responseInProgressRef,
-  pendingStopAfterResponseRef,
-  scheduleDeferredSessionStop,
+  setPhase,
   onLogEvent
 ) {
   let event;
@@ -610,6 +614,8 @@ function handleRealtimeEvent(
 
   if (event.type === "response.created") {
     responseInProgressRef.current = true;
+    clearIdleTimeout();
+    setPhase(coachPhases.responding);
   }
 
   if (
@@ -631,6 +637,8 @@ function handleRealtimeEvent(
 
   if (isResponseDeltaEvent(event.type)) {
     responseInProgressRef.current = true;
+    clearIdleTimeout();
+    setPhase(coachPhases.responding);
   }
 
   if (
@@ -667,12 +675,7 @@ function handleRealtimeEvent(
   if (isResponseDoneEvent(event.type)) {
     responseInProgressRef.current = false;
     onLogEvent?.("realtime_response_done", { eventType: event.type });
-    if (pendingStopAfterResponseRef.current) {
-      pendingStopAfterResponseRef.current = false;
-      clearIdleTimeout();
-      scheduleDeferredSessionStop();
-      return shouldEndSession;
-    }
+    setPhase(coachPhases.listening);
     scheduleIdleTimeout();
   }
 

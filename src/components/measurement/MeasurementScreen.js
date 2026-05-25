@@ -31,6 +31,11 @@ export function MeasurementScreen({
     usePromptPages(variant.status);
   const { realtimeStatus, transcript, assistantText, startSession, stopSession } =
     useRealtimePostureCoach(variant, isPaused, coachMode, interventionMode, onLogEvent);
+  const canStopRealtime =
+    realtimeStatus === "connected" ||
+    realtimeStatus === "connecting" ||
+    realtimeStatus === "responding" ||
+    realtimeStatus === "speaking";
 
   return (
     <View style={styles.screen}>
@@ -67,9 +72,7 @@ export function MeasurementScreen({
           transcript={transcript}
           assistantText={assistantText}
           isPaused={isPaused}
-          onToggleRecording={
-            isPaused ? undefined : realtimeStatus === "connected" ? stopSession : startSession
-          }
+          onToggleRecording={isPaused ? undefined : canStopRealtime ? stopSession : startSession}
         />
 
         <ActionButtons isPaused={isPaused} onTogglePause={onTogglePause} />
