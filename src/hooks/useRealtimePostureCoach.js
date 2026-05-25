@@ -405,7 +405,7 @@ export function useRealtimePostureCoach(
       return undefined;
     }
 
-    const sessionKey = `${variant.status}:${coachMode}:${interventionMode}`;
+    const sessionKey = `${coachMode}:${interventionMode}`;
     if (hasStartedForStatusRef.current === sessionKey) {
       return undefined;
     }
