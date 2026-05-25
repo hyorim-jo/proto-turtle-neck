@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import * as Speech from "expo-speech";
 import {
   mediaDevices,
   RTCPeerConnection,
@@ -25,8 +26,9 @@ export function useRealtimePostureCoach(
   const hasStartedForStatusRef = useRef(null);
   const maxSessionTimerRef = useRef(null);
   const idleSessionTimerRef = useRef(null);
+  const openingSpeechTimerRef = useRef(null);
+  const openingSpeechCompletedRef = useRef(false);
   const responseInProgressRef = useRef(false);
-  const openingRequestedRef = useRef(false);
   const [status, setStatus] = useState("idle");
   const [transcript, setTranscript] = useState("");
   const [assistantText, setAssistantText] = useState("");
@@ -34,6 +36,9 @@ export function useRealtimePostureCoach(
   const stopSession = useCallback(() => {
     clearTimer(maxSessionTimerRef);
     clearTimer(idleSessionTimerRef);
+    clearTimer(openingSpeechTimerRef);
+    Speech.stop();
+    openingSpeechCompletedRef.current = false;
 
     dataChannelRef.current?.close();
     dataChannelRef.current = null;
@@ -44,7 +49,6 @@ export function useRealtimePostureCoach(
     connectionRef.current?.close();
     connectionRef.current = null;
     responseInProgressRef.current = false;
-    openingRequestedRef.current = false;
 
     stopSpeakerRoute();
 
@@ -82,7 +86,16 @@ export function useRealtimePostureCoach(
       return;
     }
 
-    stopSession();
+    clearTimer(maxSessionTimerRef);
+    clearTimer(idleSessionTimerRef);
+    dataChannelRef.current?.close();
+    dataChannelRef.current = null;
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+    connectionRef.current?.close();
+    connectionRef.current = null;
+    responseInProgressRef.current = false;
+
     setStatus("connecting");
     setTranscript("");
     setAssistantText("");
@@ -125,14 +138,7 @@ export function useRealtimePostureCoach(
           });
           stopSession();
         }, MAX_SESSION_MS);
-        requestOpeningResponse(
-          sendEvent,
-          variant,
-          coachMode,
-          responseInProgressRef,
-          openingRequestedRef,
-          onLogEvent
-        );
+        sendOpeningContext(sendEvent, variant, coachMode, onLogEvent);
       };
       dataChannel.onmessage = (event) => {
         const shouldEndSession = handleRealtimeEvent(
@@ -182,14 +188,7 @@ export function useRealtimePostureCoach(
         postureStatus: variant.status,
         coachMode
       });
-      requestOpeningResponse(
-        sendEvent,
-        variant,
-        coachMode,
-        responseInProgressRef,
-        openingRequestedRef,
-        onLogEvent
-      );
+      sendOpeningContext(sendEvent, variant, coachMode, onLogEvent);
     } catch (error) {
       console.warn("Failed to start realtime posture coach", error);
       onLogEvent?.("realtime_coach_error", {
@@ -201,6 +200,47 @@ export function useRealtimePostureCoach(
       setStatus("error");
     }
   }, [clearIdleTimeout, coachMode, onLogEvent, scheduleIdleTimeout, sendEvent, stopSession, variant]);
+
+  const speakOpeningThenStartSession = useCallback(() => {
+    const openingLine = buildOpeningLine(variant, coachMode);
+    clearTimer(openingSpeechTimerRef);
+    Speech.stop();
+    openingSpeechCompletedRef.current = false;
+    setStatus("speaking");
+    setAssistantText(openingLine);
+    onLogEvent?.("tts_opening_started", {
+      postureStatus: variant.status,
+      coachMode,
+      text: openingLine
+    });
+
+    const startAfterSpeech = () => {
+      if (openingSpeechCompletedRef.current) return;
+      openingSpeechCompletedRef.current = true;
+      clearTimer(openingSpeechTimerRef);
+      onLogEvent?.("tts_opening_finished", {
+        postureStatus: variant.status,
+        coachMode
+      });
+      startSession();
+    };
+
+    openingSpeechTimerRef.current = setTimeout(startAfterSpeech, estimateSpeechDuration(openingLine));
+    Speech.speak(openingLine, {
+      language: "ko-KR",
+      pitch: 1,
+      rate: 0.95,
+      onDone: startAfterSpeech,
+      onStopped: startAfterSpeech,
+      onError: () => {
+        onLogEvent?.("tts_opening_error", {
+          postureStatus: variant.status,
+          coachMode
+        });
+        startAfterSpeech();
+      }
+    });
+  }, [coachMode, onLogEvent, startSession, variant]);
 
   useEffect(() => {
     if (isPaused || !warningStatuses.has(variant.status)) {
@@ -215,10 +255,10 @@ export function useRealtimePostureCoach(
     }
 
     hasStartedForStatusRef.current = sessionKey;
-    startSession();
+    speakOpeningThenStartSession();
 
     return undefined;
-  }, [coachMode, isPaused, startSession, stopSession, variant.status]);
+  }, [coachMode, isPaused, speakOpeningThenStartSession, stopSession, variant.status]);
 
   useEffect(() => stopSession, [stopSession]);
 
@@ -256,16 +296,7 @@ function clearTimer(timerRef) {
   timerRef.current = null;
 }
 
-function requestOpeningResponse(
-  sendEvent,
-  variant,
-  coachMode,
-  responseInProgressRef,
-  openingRequestedRef,
-  onLogEvent
-) {
-  if (openingRequestedRef.current) return;
-
+function sendOpeningContext(sendEvent, variant, coachMode, onLogEvent) {
   const didSend = sendEvent({
     type: "conversation.item.create",
     item: {
@@ -274,71 +305,41 @@ function requestOpeningResponse(
       content: [
         {
           type: "input_text",
-          text: buildOpeningTriggerText(variant, coachMode)
+          text: buildOpeningContextText(variant, coachMode)
         }
       ]
     }
   });
 
-  if (!didSend) return;
-
-  const didRequestResponse = sendEvent({
-    type: "response.create",
-    response: {
-      instructions: `${buildOpeningPrompt(variant, coachMode)}
-
-지금 즉시 음성으로 사용자에게 먼저 말을 걸어라. 사용자의 추가 발화를 기다리지 말고 첫 문장을 말한다.`,
-      modalities: ["audio", "text"]
-    }
-  });
-
-  if (didRequestResponse) {
-    openingRequestedRef.current = true;
-    responseInProgressRef.current = true;
-    onLogEvent?.("realtime_opening_requested", {
+  if (didSend) {
+    onLogEvent?.("realtime_opening_context_sent", {
       postureStatus: variant.status,
       coachMode
     });
   }
 }
 
-function buildOpeningTriggerText(variant, coachMode) {
+function buildOpeningContextText(variant, coachMode) {
   const statusText = variant.status === "bad" ? "bad" : "soso";
+  const openingLine = buildOpeningLine(variant, coachMode);
   if (coachMode === "stretch") {
-    return `앱이 최근 10분 안에 bad 자세가 3번 이상 반복된 것을 감지했습니다. 현재 상태는 ${statusText}입니다. 사용자에게 먼저 스트레칭을 제안하세요.`;
+    return `앱이 이미 사용자에게 "${openingLine}"라고 말했습니다. 최근 10분 안에 bad 자세가 3번 이상 반복됐고 현재 상태는 ${statusText}입니다. 사용자의 다음 답변에 자연스럽게 응답하세요.`;
   }
-  return `앱이 사용자의 자세 점수가 낮아진 것을 감지했습니다. 현재 상태는 ${statusText}입니다. 사용자에게 먼저 자세 교정과 스트레칭을 제안하세요.`;
+  return `앱이 이미 사용자에게 "${openingLine}"라고 말했습니다. 자세 점수가 낮아졌고 현재 상태는 ${statusText}입니다. 사용자의 다음 답변에 자연스럽게 응답하세요.`;
 }
 
-function buildOpeningPrompt(variant, coachMode = "correction") {
-  const postureLevel = variant.status === "bad" ? "bad" : "soso";
-  const openingLine =
-    coachMode === "stretch"
-      ? "거북목 자세가 10분 안에 여러 번 반복됐어요. 이번에는 목과 어깨를 짧게 풀어볼까요?"
-      : postureLevel === "bad"
-        ? "거북목 자세가 꽤 심해 보여요. 지금 잠깐 자세를 바로잡고 목과 어깨를 풀어볼까요?"
-        : "거북목 자세가 감지됐어요. 지금 자세를 바르게 해볼까요?";
-  const modeInstruction =
-    coachMode === "stretch"
-      ? "이번 대화의 목표는 자세 교정보다 스트레칭 제안이다. 사용자가 동의하면 바로 따라 할 수 있는 목, 어깨, 등 스트레칭 중 하나를 1단계로 안내한다."
-      : "이번 대화의 목표는 먼저 자세를 고치도록 확인하고, 필요할 때만 스트레칭을 제안하는 것이다.";
+function buildOpeningLine(variant, coachMode) {
+  if (coachMode === "stretch") {
+    return "거북목 자세가 10분 안에 여러 번 반복됐어요. 이번에는 목과 어깨를 짧게 풀어볼까요?";
+  }
+  if (variant.status === "bad") {
+    return "거북목 자세가 꽤 심해 보여요. 지금 잠깐 자세를 바로잡고 목과 어깨를 풀어볼까요?";
+  }
+  return "거북목 자세가 감지됐어요. 지금 자세를 바르게 해볼까요?";
+}
 
-  return `너는 Necklife 앱의 한국어 음성 자세 코치다.
-현재 자세 상태는 ${postureLevel}이고, 코치 모드는 ${coachMode}다.
-${modeInstruction}
-
-반드시 첫 응답은 아래 한 문장으로 시작한다:
-"${openingLine}"
-
-대화 시나리오:
-1. 사용자가 자세를 고쳤다고 말하면 짧게 칭찬한다. 예: "좋아요. 바른 자세 잘 유지하고 있어요."
-2. 사용자가 고쳤다고 했지만 다시 불편함을 말하거나 아직 어렵다고 하면 "아직 목이 기울어져 있어요. 지금 자세를 바꾸기 어렵나요?"처럼 의도를 확인한다.
-3. 사용자가 어렵다거나 나중에 하겠다고 하면 "알겠어요. 잠시 후 다시 확인할게요."라고 말하고 대화를 마무리한다.
-4. 코치 모드가 stretch이면 등, 목, 어깨 스트레칭을 부드럽게 제안한다.
-5. 사용자가 아무 말도 하지 않으면 재촉하지 말고 짧게 기다린다.
-
-항상 1~2문장으로 짧고 자연스럽게 말한다. 사용자가 스트레칭을 하겠다고 하면 구체적인 스트레칭 1개만 안내한다.
-대화가 자연스럽게 끝나면 마지막 텍스트에 ${END_SESSION_TOKEN}을 포함한다.`;
+function estimateSpeechDuration(text) {
+  return Math.max(2200, Math.min(6500, text.length * 115));
 }
 
 function handleRealtimeEvent(
